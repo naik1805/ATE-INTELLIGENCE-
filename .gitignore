@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging
+dist/
+build/
+*.spec
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Secrets and environment
+.env
+.env.local
+.env.*
+
+# Node / frontend build artifacts
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+# Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Integration runtime state (regenerated locally)
+integration/.state/
+
+# ML Models and oversized binaries
+*.pkl
+*.joblib
+*.h5
+*.onnx
+*.pt
+*.pth
+
+# OS and Editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
