@@ -7,7 +7,11 @@ from typing import Annotated
 
 from fastapi import Depends, Query, Request, status
 
-from dtl_agent.api.analysis_session import AnalysisSessionError, get_session
+from dtl_agent.api.analysis_session import (
+    AnalysisSessionError,
+    get_latest_completed_session,
+    get_session,
+)
 from dtl_agent.api.errors import (
     ModelUnavailableError,
     ServiceError,
@@ -52,10 +56,16 @@ def get_analysis_project_root(
 ) -> Path:
     """Resolve project root for analysis routes.
 
-    Without ``analysis_session_id`` → repository static root (backward compatible).
+    Without ``analysis_session_id`` → newest live upload session if one exists,
+    otherwise the repository static root (backward compatible).
     With a valid session id → that session's uploaded sandbox only.
     """
     if analysis_session_id is None or not str(analysis_session_id).strip():
+        latest = get_latest_completed_session()
+        if latest is not None:
+            request.state.analysis_session_id = latest.analysis_session_id
+            request.state.analysis_session_provenance = latest.provenance
+            return latest.root
         return request.app.state.project_root
     try:
         sess = get_session(str(analysis_session_id).strip())

@@ -27,10 +27,12 @@ export async function buildAutoloadMessage(
     `/api/default-data/agents/${agentId}/bootstrap`,
   ).then((r) => r.json())) as Record<string, unknown>;
 
-  const meta = (bootstrap.files as Array<{ name: string }> | undefined) ?? [];
+  const meta = (bootstrap.files as Array<{ name: string; size?: number }> | undefined) ?? [];
   const files: AutoloadFilePayload[] = [];
+  const MAX_INJECT_BYTES = 1_500_000;
 
   for (const entry of meta) {
+    if ((entry.size ?? 0) > MAX_INJECT_BYTES) continue;
     const res = await fetch(
       `/api/default-data/agents/${agentId}/files/${encodeURIComponent(entry.name)}`,
     );

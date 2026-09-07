@@ -6,7 +6,7 @@ import type { AgentKpiSnapshot, AgentStatusResponse } from "@/types/agents";
  * direct rather than through the existing /api catch-all proxy (which targets
  * the wafer-yield backend).
  */
-async function getJson<T>(url: string, timeoutMs = 6000): Promise<T> {
+async function getJson<T>(url: string, timeoutMs = 20_000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -22,14 +22,39 @@ async function getJson<T>(url: string, timeoutMs = 6000): Promise<T> {
   }
 }
 
+function startingSnapshot(agentId: string, name: string, uiUrl: string, kpiEndpoint: string): AgentKpiSnapshot {
+  return {
+    agent_id: agentId,
+    name,
+    // "idle" while wrappers warm up — never surface port/connection errors in the UI.
+    status: "idle",
+    generated_at: new Date().toISOString(),
+    last_activity_at: null,
+    source: kpiEndpoint,
+    detail_url: uiUrl,
+    kpis: [],
+    warnings: [],
+  };
+}
+
 export async function fetchAgentKpis(agentId: string): Promise<AgentKpiSnapshot> {
   const cfg = getAgentConfig(agentId);
-  if (!cfg) throw new Error(`Unknown agent id: ${agentId}`);
-  return getJson<AgentKpiSnapshot>(cfg.kpi_endpoint);
+  if (!cfg) {
+    return startingSnapshot(agentId, agentId, "", "");
+  }
+  try {
+    return await getJson<AgentKpiSnapshot>(cfg.kpi_endpoint);
+  } catch {
+    return startingSnapshot(agentId, cfg.name, cfg.ui_url, cfg.kpi_endpoint);
+  }
 }
 
 export async function fetchAgentStatus(agentId: string): Promise<AgentStatusResponse> {
   const cfg = getAgentConfig(agentId);
-  if (!cfg) throw new Error(`Unknown agent id: ${agentId}`);
-  return getJson<AgentStatusResponse>(cfg.status_endpoint, 4000);
+  if (!cfg) return { status: "idle" };
+  try {
+    return await getJson<AgentStatusResponse>(cfg.status_endpoint, 4000);
+  } catch {
+    return { status: "idle" };
+  }
 }

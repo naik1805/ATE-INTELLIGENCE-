@@ -8,19 +8,36 @@ import {
   postAutoloadToIframe,
 } from "@/lib/agentAutoload";
 import {
+  clearDashboardAgentCache,
   readDashboardAgentCache,
   writeDashboardAgentCache,
 } from "@/lib/agentSessionCache";
+
+async function waitForAgentUi(url: string, attempts = 20): Promise<boolean> {
+  const probe = url.split("?")[0] || url;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await fetch(probe, { method: "GET", mode: "no-cors", cache: "no-store" });
+      // no-cors opaque responses still mean the host answered.
+      if (res.type === "opaque" || res.ok || res.status < 500) return true;
+    } catch {
+      /* still starting */
+    }
+    await new Promise((r) => window.setTimeout(r, 1500));
+  }
+  return false;
+}
 
 export function AgentDetailView({ agentId }: { agentId: string }) {
   const config = getAgentConfig(agentId);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
-  const [loadState, setLoadState] = useState<"idle" | "cached" | "loading" | "ready" | "error">(
+  const [loadState, setLoadState] = useState<"idle" | "cached" | "loading" | "ready" | "waiting">(
     "idle",
   );
   const cacheAckRef = useRef(false);
   const autoloadStartedRef = useRef(false);
+  const reloadCountRef = useRef(0);
 
   const deliverToIframe = useCallback(async () => {
     if (!config || autoloadStartedRef.current) return;
@@ -28,7 +45,7 @@ export function AgentDetailView({ agentId }: { agentId: string }) {
     if (!iframe?.contentWindow) return;
 
     const dataBase = `${window.location.origin}/api/default-data`;
-    const cached = readDashboardAgentCache(agentId);
+    const cached = agentId === "dtl" ? null : readDashboardAgentCache(agentId);
 
     if (cached) {
       iframe.contentWindow.postMessage(
@@ -47,13 +64,15 @@ export function AgentDetailView({ agentId }: { agentId: string }) {
       postAutoloadToIframe(iframe, message);
       setLoadState("ready");
     } catch {
-      setLoadState("error");
+      // Agent UI still loads in the iframe; default-data is optional.
+      setLoadState("ready");
     }
   }, [agentId, config]);
 
   useEffect(() => {
     cacheAckRef.current = false;
     autoloadStartedRef.current = false;
+    reloadCountRef.current = 0;
 
     const onMessage = (ev: MessageEvent) => {
       if (ev.data?.agentId !== agentId) return;
@@ -74,16 +93,30 @@ export function AgentDetailView({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     if (!config) return;
+    let cancelled = false;
     const dataBase = `${window.location.origin}/api/default-data`;
     const join = config.ui_url.includes("?") ? "&" : "?";
-    setIframeSrc(
-      `${config.ui_url}${join}autoload=1&dataBase=${encodeURIComponent(dataBase)}`,
-    );
-    if (readDashboardAgentCache(agentId)) {
-      setLoadState("cached");
-    } else {
-      setLoadState("loading");
-    }
+    const target = `${config.ui_url}${join}autoload=1&dataBase=${encodeURIComponent(dataBase)}`;
+
+    setLoadState(readDashboardAgentCache(agentId) ? "cached" : "waiting");
+
+    void (async () => {
+      const ready = await waitForAgentUi(config.ui_url);
+      if (cancelled) return;
+      setIframeSrc(target);
+      setLoadState(readDashboardAgentCache(agentId) ? "cached" : "loading");
+      if (!ready && reloadCountRef.current < 2) {
+        // Soft retry: keep waiting without flashing connection errors.
+        reloadCountRef.current += 1;
+        window.setTimeout(() => {
+          if (!cancelled) setIframeSrc(`${target}&_r=${Date.now()}`);
+        }, 2500);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [agentId, config]);
 
   useEffect(() => {
@@ -99,10 +132,14 @@ export function AgentDetailView({ agentId }: { agentId: string }) {
     const retry = window.setTimeout(() => {
       void deliverToIframe();
     }, 1200);
+    const retry2 = window.setTimeout(() => {
+      void deliverToIframe();
+    }, 4000);
 
     return () => {
       iframe.removeEventListener("load", onLoad);
       window.clearTimeout(retry);
+      window.clearTimeout(retry2);
     };
   }, [iframeSrc, deliverToIframe]);
 
@@ -117,14 +154,10 @@ export function AgentDetailView({ agentId }: { agentId: string }) {
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--bg)]">
       <header className="flex shrink-0 items-center justify-between border-b border-[rgba(107,193,242,0.18)] bg-[var(--bg)] px-7 py-3">
-        {loadState === "loading" ? (
-          <span className="text-sm text-[var(--muted)]">Loading default data…</span>
+        {loadState === "waiting" || loadState === "loading" ? (
+          <span className="text-sm text-[var(--muted)]">Starting agent…</span>
         ) : loadState === "cached" ? (
           <span className="text-sm text-[var(--muted)]">Restored from cache</span>
-        ) : loadState === "error" ? (
-          <span className="text-sm text-amber-400">
-            Default data could not be prepared — use manual upload in the agent.
-          </span>
         ) : (
           <span />
         )}
@@ -139,7 +172,11 @@ export function AgentDetailView({ agentId }: { agentId: string }) {
           src={iframeSrc}
           className="min-h-0 flex-1 w-full border-0"
         />
-      ) : null}
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted)]">
+          Preparing agent UI…
+        </div>
+      )}
     </div>
   );
 }

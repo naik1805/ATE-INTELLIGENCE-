@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AgentKpiSection } from "@/components/agents/AgentKpiSection";
+import { RaAdvisorCard } from "@/components/agents/RaAdvisorCard";
+import { OfflineBanner } from "@/components/dashboard/OfflineBanner";
 import { DisconnectedBanner } from "@/components/common/DisconnectedBanner";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LiveStatusIndicator } from "@/components/common/LiveStatusIndicator";
@@ -23,14 +25,29 @@ import { useWaferRealtime } from "@/hooks/useWaferRealtime";
 import { fetchWafer } from "@/services/api";
 import { useOpsStore } from "@/stores/opsStore";
 
+function useOfflineDesktop(): boolean {
+  const [offline, setOffline] = useState(
+    process.env.NEXT_PUBLIC_OFFLINE_DESKTOP === "1",
+  );
+
+  useEffect(() => {
+    const host = window.location.hostname;
+    if (host === "127.0.0.1" || host === "localhost") {
+      setOffline(true);
+    }
+  }, []);
+
+  return offline;
+}
+
 export function DashboardShell() {
+  const offlineDesktop = useOfflineDesktop();
   const { summary, isLoading, isError, refetch } = useDashboardData();
   const selectedWaferId = useOpsStore((s) => s.waferId);
   const hydrateFromSummary = useOpsStore((s) => s.hydrateFromSummary);
 
   useEffect(() => {
     if (!summary?.active_wafer) return;
-    // Lot/wafer from backend only — never inject default tester/site.
     hydrateFromSummary({
       lotId: summary.active_wafer.lot_id,
       waferId: summary.active_wafer.wafer_id,
@@ -40,7 +57,7 @@ export function DashboardShell() {
   }, [summary, hydrateFromSummary]);
 
   const waferId = selectedWaferId || summary?.active_wafer?.wafer_id || null;
-  useWaferRealtime(waferId, true);
+  useWaferRealtime(waferId, !offlineDesktop);
 
   const waferQuery = useQuery({
     queryKey: ["wafer", waferId, "detail"],
@@ -49,7 +66,7 @@ export function DashboardShell() {
     staleTime: 8_000,
   });
 
-  if (isLoading && !summary) {
+  if (isLoading && !summary && !offlineDesktop) {
     return (
       <div className="mx-auto max-w-[1400px] px-7 pb-[90px] pt-[30px]">
         <LoadingState />
@@ -57,7 +74,7 @@ export function DashboardShell() {
     );
   }
 
-  if (isError && !summary) {
+  if (isError && !summary && !offlineDesktop) {
     return (
       <div className="mx-auto max-w-[1400px] px-7 pb-[90px] pt-[30px]">
         <ErrorState
@@ -91,6 +108,8 @@ export function DashboardShell() {
         </div>
       </header>
 
+      {offlineDesktop ? <OfflineBanner /> : null}
+
       <div className="vl-section-enter vl-section-enter-delay-1">
         <EnterpriseControls />
       </div>
@@ -103,18 +122,25 @@ export function DashboardShell() {
         <YieldSummary wafer={wafer} />
       </section>
 
-      <div id="optimization-parameters" className="vl-section-title mb-3 scroll-mt-6 vl-section-enter vl-section-enter-delay-3">
+      <div
+        id="optimization-parameters"
+        className="vl-section-title mb-3 scroll-mt-6 vl-section-enter vl-section-enter-delay-3"
+      >
         Optimization Parameters
       </div>
       <div className="vl-section-enter vl-section-enter-delay-3">
         <OptimizationKpiGrid
           dynamicTestLimits={<DynamicTestLimits />}
+          raAdvisor={<RaAdvisorCard />}
         >
           <PredictiveMaintenanceCard />
         </OptimizationKpiGrid>
       </div>
 
-      <div id="integrated-agents" className="vl-section-title mb-3 mt-6 scroll-mt-6 vl-section-enter vl-section-enter-delay-4">
+      <div
+        id="integrated-agents"
+        className="vl-section-title mb-3 mt-6 scroll-mt-6 vl-section-enter vl-section-enter-delay-4"
+      >
         Integrated Agents
       </div>
       <div className="vl-section-enter vl-section-enter-delay-4">
@@ -125,7 +151,7 @@ export function DashboardShell() {
         <TestFloorEventLog />
       </div>
 
-      <footer className="mt-8 flex flex-wrap justify-between gap-2 border-t border-[rgba(107,193,242,0.18)] pt-4 text-[11px] text-[#7f96b0] vl-section-enter vl-section-enter-delay-5">
+      <footer className="vl-section-enter vl-section-enter-delay-5 mt-8 flex flex-wrap justify-between gap-2 border-t border-[rgba(107,193,242,0.18)] pt-4 text-[11px] text-[#7f96b0]">
         <span>
           Metrics reflect an ML-assisted test-optimization layer over standard ATE limits and bin
           logic

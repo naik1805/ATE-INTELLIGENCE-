@@ -114,7 +114,7 @@ export default function App() {
     const predsJson = JSON.stringify(records);
     const dataBase =
       new URLSearchParams(window.location.search).get('dataBase') ||
-      'http://localhost:3000/api/default-data';
+      'http://127.0.0.1:3000/api/default-data';
 
     const payload = findOutcomesPayload(boot, injectedFiles);
     if (payload?.buffer) {
@@ -175,7 +175,7 @@ export default function App() {
     const autoload = new URLSearchParams(window.location.search).has('autoload');
     const dataBase =
       new URLSearchParams(window.location.search).get('dataBase') ||
-      'http://localhost:3000/api/default-data';
+      'http://127.0.0.1:3000/api/default-data';
 
     const cached = readAgentCache(RETEST_AGENT_ID);
     if (autoload && cached && restoreRetestCache(cached)) {

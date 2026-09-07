@@ -45,18 +45,43 @@ function listUploads() {
     });
 }
 
-async function probeAgentHealth() {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2500);
-  try {
-    const res = await fetch(`${AGENT_URL}/api/health`, { signal: controller.signal });
-    if (!res.ok) return { reachable: false, body: null };
-    return { reachable: true, body: await res.json() };
-  } catch {
-    return { reachable: false, body: null };
-  } finally {
-    clearTimeout(timer);
-  }
+const http = require("http");
+const { URL } = require("url");
+
+function probeAgentHealth() {
+  return new Promise((resolve) => {
+    const url = new URL(`${AGENT_URL}/api/health`);
+    const req = http.get(
+      {
+        hostname: url.hostname,
+        port: url.port || 80,
+        path: url.pathname,
+        timeout: 2500,
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (c) => {
+          raw += c;
+        });
+        res.on("end", () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              resolve({ reachable: true, body: JSON.parse(raw) });
+            } catch {
+              resolve({ reachable: true, body: null });
+            }
+          } else {
+            resolve({ reachable: false, body: null });
+          }
+        });
+      },
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve({ reachable: false, body: null });
+    });
+    req.on("error", () => resolve({ reachable: false, body: null }));
+  });
 }
 
 async function snapshot() {

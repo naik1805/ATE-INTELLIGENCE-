@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ackCacheRestore,
+  clearAgentCache,
   readAgentCache,
   writeAgentCache,
 } from "../../../../shared/verilumenCache.js";
@@ -235,9 +236,11 @@ export function ThreeMonthDashboardPage() {
     setAnalyzing(false);
   };
 
+  const reuploadDefaultRef = useRef<(() => Promise<void>) | null>(null);
+  const didReuploadRef = useRef(false);
+
   const restoreDtlCache = (payload: Record<string, unknown> | null | undefined): boolean => {
-    if (!payload?.bundle || !payload?.sessionId) return false;
-    setSessionId(String(payload.sessionId));
+    if (!payload?.bundle) return false;
     setUploadMeta((payload.uploadMeta as AnalysisUploadResult) ?? null);
     if (payload.month) setMonth(String(payload.month));
     if (payload.parameter) setParameter(String(payload.parameter));
@@ -248,8 +251,17 @@ export function ThreeMonthDashboardPage() {
     return true;
   };
 
+  const sessionLooksLive = async (sid: string): Promise<boolean> => {
+    try {
+      const live = await getUploadStatus(sid);
+      return live.status === "completed" || live.status === "ready";
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
-    if (!bundle || !sessionId) return;
+    if (!bundle || !sessionId || error) return;
     writeAgentCache(DTL_AGENT_ID, {
       sessionId,
       uploadMeta,
@@ -260,20 +272,14 @@ export function ThreeMonthDashboardPage() {
       lotId,
       dieId,
     });
-  }, [bundle, sessionId, uploadMeta, month, parameter, category, lotId, dieId]);
+  }, [bundle, sessionId, uploadMeta, month, parameter, category, lotId, dieId, error]);
 
   useEffect(() => {
     if (!new URLSearchParams(window.location.search).has("autoload")) return;
     const base =
       new URLSearchParams(window.location.search).get("dataBase") ||
-      "http://localhost:3000/api/default-data";
+      "http://127.0.0.1:3000/api/default-data";
     let cancelled = false;
-
-    const cached = readAgentCache(DTL_AGENT_ID);
-    if (cached && restoreDtlCache(cached)) {
-      ackCacheRestore(DTL_AGENT_ID);
-      return;
-    }
 
     const pickMonthFromPayload = (
       payloads: Array<{ name: string; type?: string; buffer: ArrayBuffer }>,
@@ -291,10 +297,50 @@ export function ThreeMonthDashboardPage() {
       return new File([meta.buffer], name, { type: mime });
     };
 
+    const uploadMonths = async (
+      january: File | null,
+      february: File | null,
+      march: File | null,
+    ) => {
+      if (january && february && march) {
+        const result = await postAnalysisUpload({ january, february, march });
+        if (!cancelled) onSessionReady(result);
+        return true;
+      }
+      return false;
+    };
+
+    const restoreLiveSession = async (boot: Record<string, unknown>): Promise<boolean> => {
+      const sid = typeof boot.analysis_session_id === "string" ? boot.analysis_session_id : "";
+      const upload = boot.upload_result as AnalysisUploadResult | undefined;
+      const status = upload?.status;
+      if (!sid || (status && status !== "completed" && status !== "ready")) {
+        return false;
+      }
+      try {
+        const live = await getUploadStatus(sid);
+        if (
+          live.status === "completed" ||
+          live.status === "ready" ||
+          live.status === "queued" ||
+          live.status === "processing"
+        ) {
+          onSessionReady(live);
+          return true;
+        }
+      } catch {
+        /* session expired — fall through to re-upload */
+      }
+      return false;
+    };
+
     const runAutoload = async (
       boot: Record<string, unknown>,
       injectedFiles: Array<{ name: string; type?: string; buffer: ArrayBuffer }> = [],
+      skipLiveRestore = false,
     ) => {
+      if (!skipLiveRestore && (await restoreLiveSession(boot))) return;
+
       if (injectedFiles.length >= 3) {
         const january = pickMonthFromPayload(injectedFiles, [
           "january",
@@ -317,11 +363,7 @@ export function ThreeMonthDashboardPage() {
           "dtl_input_2026_03",
           "_03",
         ]);
-        if (january && february && march) {
-          const result = await postAnalysisUpload({ january, february, march });
-          if (!cancelled) onSessionReady(result);
-          return;
-        }
+        if (await uploadMonths(january, february, march)) return;
       }
 
       const files: Array<{ name: string }> = (boot.files as Array<{ name: string }>) || [];
@@ -346,36 +388,68 @@ export function ThreeMonthDashboardPage() {
         const january = await fetchMonth(["january", "2026-01", "2026_01", "dtl_input_2026_01", "_01"]);
         const february = await fetchMonth(["february", "2026-02", "2026_02", "dtl_input_2026_02", "_02"]);
         const march = await fetchMonth(["march", "2026-03", "2026_03", "dtl_input_2026_03", "_03"]);
-        if (january && february && march) {
-          const result = await postAnalysisUpload({ january, february, march });
-          if (!cancelled) onSessionReady(result);
-          return;
-        }
+        if (await uploadMonths(january, february, march)) return;
       }
 
-      if (boot.analysis_session_id && boot.upload_result) {
-        onSessionReady(boot.upload_result as AnalysisUploadResult);
-        return;
+      try {
+        const data = await getThreeMonthAnalysis();
+        if (!cancelled) applyBundle(data);
+      } catch {
+        /* keep upload prompt */
       }
-
-      const data = await getThreeMonthAnalysis();
-      if (!cancelled) applyBundle(data);
     };
 
     const onMessage = (ev: MessageEvent) => {
       if (ev.data?.type === "verilumen-cache-restore" && ev.data.agentId === DTL_AGENT_ID) {
-        if (restoreDtlCache(ev.data.payload)) ackCacheRestore(DTL_AGENT_ID);
+        const payload = ev.data.payload as Record<string, unknown> | undefined;
+        const sid = payload?.sessionId ? String(payload.sessionId) : "";
+        if (!sid) return;
+        void sessionLooksLive(sid).then((ok) => {
+          if (cancelled || !ok) return;
+          if (restoreDtlCache(payload)) {
+            setSessionId(sid);
+            ackCacheRestore(DTL_AGENT_ID);
+          }
+        });
         return;
       }
       if (ev.data?.type !== "verilumen-autoload" || ev.data.agentId !== "dtl") return;
       void runAutoload(ev.data.bootstrap || {}, ev.data.files || []).catch((err) => {
-        if (!cancelled) console.warn("dtl parent autoload failed", err);
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "Autoload failed";
+          setError(msg);
+        }
       });
     };
     window.addEventListener("message", onMessage);
 
+    reuploadDefaultRef.current = async () => {
+      try {
+        const boot = await fetch(`${base}/agents/dtl/bootstrap`).then((r) => r.json());
+        if (cancelled) return;
+        await runAutoload(boot, [], true);
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "Could not reload default DTL data.";
+          setError(msg);
+        }
+      }
+    };
+
     (async () => {
       try {
+        const cached = readAgentCache(DTL_AGENT_ID);
+        const cachedSid = cached?.sessionId ? String(cached.sessionId) : "";
+        if (cachedSid && (await sessionLooksLive(cachedSid))) {
+          if (cancelled) return;
+          if (restoreDtlCache(cached)) {
+            setSessionId(cachedSid);
+            ackCacheRestore(DTL_AGENT_ID);
+            return;
+          }
+        } else if (cachedSid) {
+          clearAgentCache(DTL_AGENT_ID);
+        }
         const boot = await fetch(`${base}/agents/dtl/bootstrap`).then((r) => r.json());
         if (cancelled) return;
         await runAutoload(boot);
@@ -385,8 +459,12 @@ export function ThreeMonthDashboardPage() {
           try {
             const data = await getThreeMonthAnalysis();
             if (!cancelled) applyBundle(data);
-          } catch {
-            /* keep upload prompt */
+          } catch (inner) {
+            const msg =
+              inner instanceof Error && inner.message.includes("8010")
+                ? inner.message
+                : "DTL backend is still starting (ports 8010 and 5174). Wait 2-3 minutes on the dashboard home screen, then open Dynamic Test Limits again.";
+            setError(msg);
           }
         }
       }
@@ -433,6 +511,23 @@ export function ThreeMonthDashboardPage() {
       })
       .catch((err: unknown) => {
         if (ctrl.signal.aborted) return;
+        const expired =
+          (err instanceof ApiError && err.code === "VALIDATION_ERROR") ||
+          (err instanceof Error && /expired analysis_session_id/i.test(err.message));
+        if (expired) {
+          clearAgentCache(DTL_AGENT_ID);
+          setSessionId(null);
+          setBundle(null);
+          setError(null);
+          setErrorCode(null);
+          setLoading(false);
+          setAnalyzing(false);
+          if (!didReuploadRef.current) {
+            didReuploadRef.current = true;
+            void reuploadDefaultRef.current?.();
+          }
+          return;
+        }
         if (err instanceof ApiError) {
           setError(err.message);
           setErrorCode(err.code);

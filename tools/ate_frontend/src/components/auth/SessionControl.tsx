@@ -1,6 +1,7 @@
 "use client";
 
 import { LogOut } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "@/stores/authStore";
 
 /**
@@ -10,15 +11,23 @@ export function SessionControl() {
   const username = useAuthStore((s) => s.username);
   const role = useAuthStore((s) => s.role);
   const clearSession = useAuthStore((s) => s.clearSession);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const displayUser = mounted ? username : null;
+  const displayRole = mounted ? role : null;
 
   return (
     <div className="flex items-center gap-2 border-l border-[var(--line)] pl-3">
       <div className="text-right leading-tight">
         <div className="font-mono text-[11px] font-semibold text-[var(--text)]">
-          {username ?? "—"}
+          {displayUser ?? "—"}
         </div>
         <div className="text-[9px] uppercase tracking-[0.08em] text-[var(--muted-2)]">
-          {role?.replaceAll("_", " ") ?? "signed in"}
+          {displayRole?.replaceAll("_", " ") ?? "signed in"}
         </div>
       </div>
       <button

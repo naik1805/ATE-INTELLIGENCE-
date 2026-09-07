@@ -3,8 +3,24 @@
 import { useEffect, useState } from "react";
 import { VerilumenBrand } from "@/components/branding/VerilumenBrand";
 import { fetchMe, login } from "@/services/api";
-import { useAuthStore } from "@/stores/authStore";
+import { useAuthStore, permissionsForRole } from "@/stores/authStore";
 import type { AppRole } from "@/stores/authStore";
+
+/** Offline desktop skips login; sets a local admin session once. */
+export function OfflineDesktopGate({ children }: { children: React.ReactNode }) {
+  const setSession = useAuthStore((s) => s.setSession);
+
+  useEffect(() => {
+    setSession({
+      accessToken: "offline-desktop",
+      username: "local",
+      role: "ADMIN",
+      permissions: permissionsForRole("ADMIN"),
+    });
+  }, [setSession]);
+
+  return <>{children}</>;
+}
 
 function isUnauthorizedError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -33,8 +49,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsub = useAuthStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(useAuthStore.persist.hasHydrated());
-    return unsub;
+    if (useAuthStore.persist.hasHydrated()) {
+      setHydrated(true);
+    }
+    const timer = window.setTimeout(() => setHydrated(true), 1500);
+    return () => {
+      unsub();
+      window.clearTimeout(timer);
+    };
   }, []);
 
   // Sign out clears the token — return to the login form.

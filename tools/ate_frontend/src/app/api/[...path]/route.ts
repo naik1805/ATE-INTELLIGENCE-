@@ -1,17 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
+import { handleOfflineApi, isOfflineCorePath, isOfflineDesktop } from "@/lib/offlineDesktop";
 
 /**
  * Same-origin API proxy for Vercel → Render.
  * Browser calls /api/*; this forwards to the FastAPI backend (avoids CORS "Failed to fetch").
  */
-const TARGET = (process.env.API_PROXY_TARGET || "https://wafer-yield-api.onrender.com").replace(
-  /\/$/,
-  "",
-);
-
 async function proxy(req: NextRequest, pathSegments: string[]) {
+  const offline = handleOfflineApi(req, pathSegments);
+  if (offline) return offline;
+
   const path = pathSegments.join("/");
-  const url = `${TARGET}/api/${path}${req.nextUrl.search}`;
+  const proxyTarget = (process.env.API_PROXY_TARGET || "").replace(/\/$/, "");
+
+  // Safety net: never send core dashboard APIs to the integration server.
+  if (proxyTarget.endsWith(":8810") || isOfflineCorePath(path)) {
+    const forced = handleOfflineApi(req, pathSegments, { force: true });
+    if (forced) return forced;
+  }
+
+  if (isOfflineDesktop()) {
+    return NextResponse.json(
+      { detail: "Offline desktop mode — this API endpoint is not available locally." },
+      { status: 404 },
+    );
+  }
+
+  if (!proxyTarget) {
+    return NextResponse.json(
+      { detail: "No API backend configured. Run via Start ATE Intelligence.bat (offline desktop)." },
+      { status: 502 },
+    );
+  }
+
+  const url = `${proxyTarget}/api/${path}${req.nextUrl.search}`;
 
   const headers = new Headers();
   const auth = req.headers.get("authorization");

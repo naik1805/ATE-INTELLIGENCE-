@@ -34,6 +34,13 @@ coverage/
 # Integration runtime state (regenerated locally)
 integration/.state/
 
+# Portable desktop bundle (local venv + setup marker)
+.portable/
+
+# Desktop shell
+desktop/node_modules/
+desktop/dist/
+
 # ML Models and oversized binaries
 *.pkl
 *.joblib

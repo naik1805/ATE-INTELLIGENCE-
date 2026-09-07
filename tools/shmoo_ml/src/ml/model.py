@@ -104,7 +104,7 @@ class ShmooModel:
             self.lgbm = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, max_leaf_nodes=63, random_state=42)
 
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        cv_scores = cross_val_score(tmp_clf, X, y, cv=cv, scoring='accuracy', n_jobs=-1)
+        cv_scores = cross_val_score(tmp_clf, X, y, cv=cv, scoring='accuracy', n_jobs=1)
 
         # ── Step 2: Final fit on full dataset ─────────────────────────────────
         if progress_cb:
@@ -350,7 +350,7 @@ class ShmooModel:
             'reg_alpha':        0.1,
             'reg_lambda':       0.1,
             'verbose':          -1,
-            'n_jobs':           -1,
+            'n_jobs':           1,
             'random_state':     42,
         }
 

@@ -43,10 +43,13 @@ function displayName(kpiId: string, fallback: string): string {
 export function OptimizationKpiGrid({
   children,
   dynamicTestLimits,
+  raAdvisor,
 }: {
   children?: ReactNode;
   /** Rendered immediately after the Test Time Optimization card. */
   dynamicTestLimits?: ReactNode;
+  /** Takes the former Yield Improvement slot (after Dynamic Test Limits). */
+  raAdvisor?: ReactNode;
 }) {
   const { kpis, isLoading, isError, refetch } = useKpis();
   useLatestShmoo(true);
@@ -61,15 +64,27 @@ export function OptimizationKpiGrid({
     });
 
   if (isLoading && ordered.length === 0) {
-    return <LoadingState label="Loading optimization KPIs…" />;
+    return (
+      <div className="mb-[26px] grid grid-cols-1 items-stretch gap-3.5 sm:grid-cols-2">
+        <LoadingState label="Loading optimization KPIs…" />
+        {dynamicTestLimits}
+        {raAdvisor}
+        {children}
+      </div>
+    );
   }
 
   if (isError && ordered.length === 0) {
     return (
-      <ErrorState
-        message="Unable to load KPIs from the API."
-        onRetry={() => void refetch()}
-      />
+      <div className="mb-[26px] grid grid-cols-1 items-stretch gap-3.5 sm:grid-cols-2">
+        <ErrorState
+          message="Unable to load KPIs from the API."
+          onRetry={() => void refetch()}
+        />
+        {dynamicTestLimits}
+        {raAdvisor}
+        {children}
+      </div>
     );
   }
 
@@ -99,7 +114,11 @@ export function OptimizationKpiGrid({
   });
 
   const falseFailureKpi = ordered.find((k) => k.id === "false_failure_reduction");
-  const gridKpis = ordered.filter((k) => k.id !== "false_failure_reduction");
+  const yieldKpi = ordered.find((k) => k.id === "yield_improvement");
+  const gridKpis = ordered.filter(
+    (k) => k.id !== "false_failure_reduction" && k.id !== "yield_improvement",
+  );
+  const insertedAfterTestTime = gridKpis.some((k) => k.id === "test_time_reduction");
 
   return (
     <div className="mb-[26px] grid grid-cols-1 items-stretch gap-3.5 sm:grid-cols-2">
@@ -110,11 +129,42 @@ export function OptimizationKpiGrid({
           shmooMetrics={kpi.id === "m_bist_shmoo" ? shmooMetrics : undefined}
           testTimeMetrics={kpi.id === "test_time_reduction" ? testTimeMetrics : undefined}
         />,
-        ...(kpi.id === "test_time_reduction" && dynamicTestLimits
-          ? [<div key="dynamic-test-limits-slot" className="contents">{dynamicTestLimits}</div>]
+        ...(kpi.id === "test_time_reduction"
+          ? [
+              ...(dynamicTestLimits
+                ? [
+                    <div key="dynamic-test-limits-slot" className="contents">
+                      {dynamicTestLimits}
+                    </div>,
+                  ]
+                : []),
+              ...(raAdvisor
+                ? [
+                    <div key="ra-advisor-slot" className="contents">
+                      {raAdvisor}
+                    </div>,
+                  ]
+                : []),
+            ]
           : []),
       ])}
+      {!insertedAfterTestTime && dynamicTestLimits ? (
+        <div key="dynamic-test-limits-fallback" className="contents">
+          {dynamicTestLimits}
+        </div>
+      ) : null}
+      {!insertedAfterTestTime && raAdvisor ? (
+        <div key="ra-advisor-fallback" className="contents">
+          {raAdvisor}
+        </div>
+      ) : null}
       {children}
+      {yieldKpi ? (
+        <OptimizationKpiCard
+          key={yieldKpi.id}
+          kpi={{ ...yieldKpi, name: displayName(yieldKpi.id, yieldKpi.name) }}
+        />
+      ) : null}
       {falseFailureKpi ? (
         <OptimizationKpiCard
           key={falseFailureKpi.id}

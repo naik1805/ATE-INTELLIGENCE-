@@ -1,7 +1,7 @@
 /**
  * Unified agent integration config.
  *
- * Maps agent_id -> { base_url, kpi_endpoint, status_endpoint } for the four
+ * Maps agent_id -> { base_url, kpi_endpoint, status_endpoint } for the
  * KPI wrapper sidecars. Every base URL is overridable via a NEXT_PUBLIC_ env
  * var; the literal process.env references below are required for Next.js to
  * inline them at build time.
@@ -17,43 +17,51 @@ const RAW = {
     name: "M-BIST Shmoo ML",
     envVar: "NEXT_PUBLIC_AGENT_SHMOO_ML_URL",
     url: process.env.NEXT_PUBLIC_AGENT_SHMOO_ML_URL,
-    fallback: "http://localhost:8801",
+    fallback: "http://127.0.0.1:8801",
     uiUrl: process.env.NEXT_PUBLIC_AGENT_SHMOO_ML_UI_URL,
-    uiFallback: "http://localhost:5000",
+    uiFallback: "http://127.0.0.1:5000",
     apiUrl: process.env.NEXT_PUBLIC_AGENT_SHMOO_ML_API_URL,
-    apiFallback: "http://localhost:5000",
+    apiFallback: "http://127.0.0.1:5000",
   },
   test_time_opt: {
     name: "ATE Test Time Optimization",
     envVar: "NEXT_PUBLIC_AGENT_TEST_TIME_OPT_URL",
     url: process.env.NEXT_PUBLIC_AGENT_TEST_TIME_OPT_URL,
-    fallback: "http://localhost:8802",
+    fallback: "http://127.0.0.1:8802",
     uiUrl: process.env.NEXT_PUBLIC_AGENT_TEST_TIME_OPT_UI_URL,
-    uiFallback: "http://localhost:5173",
+    uiFallback: "http://127.0.0.1:5173",
     apiUrl: process.env.NEXT_PUBLIC_AGENT_TEST_TIME_OPT_API_URL,
-    apiFallback: "http://localhost:8787",
+    apiFallback: "http://127.0.0.1:8787",
   },
   dtl: {
     name: "Dynamic Test Limits",
     envVar: "NEXT_PUBLIC_AGENT_DTL_URL",
     url: process.env.NEXT_PUBLIC_AGENT_DTL_URL,
-    fallback: "http://localhost:8803",
+    fallback: "http://127.0.0.1:8803",
     uiUrl: process.env.NEXT_PUBLIC_AGENT_DTL_UI_URL,
-    uiFallback: "http://localhost:5174/three-month",
+    uiFallback: "http://127.0.0.1:5174/three-month",
     apiUrl: process.env.NEXT_PUBLIC_AGENT_DTL_API_URL,
-    apiFallback: "http://localhost:8010/api/v1",
+    apiFallback: "http://127.0.0.1:8010/api/v1",
   },
   retest_reduction: {
     name: "Retest Benefit Prediction",
     envVar: "NEXT_PUBLIC_AGENT_RETEST_REDUCTION_URL",
     url: process.env.NEXT_PUBLIC_AGENT_RETEST_REDUCTION_URL,
-    fallback: "http://localhost:8804",
-    // The team ships a React SPA (5175) backed by an Express bridge (3001)
-    // in front of FastAPI (8020). The Streamlit app on 8501 is the alternate UI.
+    fallback: "http://127.0.0.1:8804",
     uiUrl: process.env.NEXT_PUBLIC_AGENT_RETEST_REDUCTION_UI_URL,
-    uiFallback: "http://localhost:5175",
+    uiFallback: "http://127.0.0.1:5175",
     apiUrl: process.env.NEXT_PUBLIC_AGENT_RETEST_REDUCTION_API_URL,
-    apiFallback: "http://localhost:8020",
+    apiFallback: "http://127.0.0.1:8020",
+  },
+  ra_advisor: {
+    name: "RA Advisor",
+    envVar: "NEXT_PUBLIC_AGENT_RA_ADVISOR_URL",
+    url: process.env.NEXT_PUBLIC_AGENT_RA_ADVISOR_URL,
+    fallback: "http://127.0.0.1:8805",
+    uiUrl: process.env.NEXT_PUBLIC_AGENT_RA_ADVISOR_UI_URL,
+    uiFallback: "http://127.0.0.1:8030",
+    apiUrl: process.env.NEXT_PUBLIC_AGENT_RA_ADVISOR_API_URL,
+    apiFallback: "http://127.0.0.1:8030",
   },
 };
 
@@ -88,7 +96,7 @@ export const AGENT_POLL_INTERVAL_MS = 7000;
 
 /** Default dataset API (served by Next at /api/default-data, or integration server on 8810). */
 export const DEFAULT_DATA_URL = (
-  process.env.NEXT_PUBLIC_DEFAULT_DATA_URL || "http://localhost:3000/api/default-data"
+  process.env.NEXT_PUBLIC_DEFAULT_DATA_URL || "http://127.0.0.1:3000/api/default-data"
 ).replace(/\/$/, "");
 
 export function getAgentUiUrl(agentId, autoload = true) {

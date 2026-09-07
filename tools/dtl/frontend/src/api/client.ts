@@ -14,7 +14,39 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+/** Direct API URL for desktop (port 5174 UI → port 8010 API). Vite proxy is dev fallback only. */
+function resolveApiBase(): string {
+  const fromEnv = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host === "127.0.0.1" || host === "localhost") {
+      return "http://127.0.0.1:8010";
+    }
+  }
+  return "";
+}
+
+const API_BASE = resolveApiBase();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url: string, init?: RequestInit, attempts = 6): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastErr = err;
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      if (err instanceof Error && err.name === "AbortError") throw err;
+      if (i < attempts - 1) await sleep(3000);
+    }
+  }
+  throw lastErr;
+}
 
 async function parseJson<T>(response: Response): Promise<T> {
   const text = await response.text();
@@ -39,7 +71,7 @@ export async function apiFetch<T>(
     delete headers["Content-Type"];
   }
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetchWithRetry(`${API_BASE}${path}`, {
       ...init,
       headers,
     });
@@ -49,6 +81,11 @@ export async function apiFetch<T>(
     }
     if (err instanceof Error && err.name === "AbortError") {
       throw err;
+    }
+    if (err instanceof TypeError || (err instanceof Error && err.message === "Failed to fetch")) {
+      throw new Error(
+        "Analysis is still warming up. Wait a moment, then click Analyze again.",
+      );
     }
     throw err;
   }

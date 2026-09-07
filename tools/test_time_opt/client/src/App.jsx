@@ -20,12 +20,18 @@ import {
 const AGENT_ID = "test_time_opt";
 const TTO_CACHE_VERSION = 2;
 
+function slotsHavePatterns(slots) {
+  return Array.isArray(slots) && slots.some((s) => s && s.pattern_id != null);
+}
+
 function isCompleteTtoCache(payload) {
   return (
     payload?.cacheVersion >= TTO_CACHE_VERSION &&
     payload?.done &&
     payload?.failAnalysis &&
-    payload?.postProcessComplete
+    payload?.postProcessComplete &&
+    slotsHavePatterns(payload.normalSlots) &&
+    slotsHavePatterns(payload.lstmSlots)
   );
 }
 
@@ -36,7 +42,7 @@ function logFoldersFromItems(items) {
 const API = "";
 const FIRST_N = 10;
 const THEME_KEY = "verilumen-theme";
-const DEFAULT_DATA_BASE = "http://localhost:3000/api/default-data";
+const DEFAULT_DATA_BASE = "http://127.0.0.1:3000/api/default-data";
 
 function resolveDefaultDataBase() {
   const fromQuery = new URLSearchParams(window.location.search).get("dataBase");
@@ -1584,27 +1590,29 @@ export default function App() {
 
   const run = async () => {
     if (running) return;
-    if (!file) {
-      setStatus("Upload a STIL file first.");
-      setStatusTone("error");
-      return;
-    }
     resetLive();
     setRunning(true);
     setStatus("Starting simulation…");
-
-    const body = new FormData();
-    body.append("stil", file);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const res = await fetch(`${API}/api/simulate`, {
-        method: "POST",
-        body,
-        signal: controller.signal,
-      });
+      let res;
+      if (file) {
+        const body = new FormData();
+        body.append("stil", file);
+        res = await fetch(`${API}/api/simulate`, {
+          method: "POST",
+          body,
+          signal: controller.signal,
+        });
+      } else {
+        res = await fetch(`${API}/api/simulate-default`, {
+          method: "GET",
+          signal: controller.signal,
+        });
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || `HTTP ${res.status}`);
@@ -1710,7 +1718,7 @@ export default function App() {
         return;
       }
 
-      if (existingCache?.done && !existingCache?.failAnalysis && logItems.length) {
+      if (existingCache?.done && slotsHavePatterns(existingCache.normalSlots) && !existingCache?.failAnalysis && logItems.length) {
         restoreTtoCache({
           ...existingCache,
           failAnalysis: null,
@@ -1729,9 +1737,10 @@ export default function App() {
         setAutoloadRunPending(true);
         if (logItems.length) setAutoloadPostPending(true);
         setStatus("Running pre-process simulation, then post-process log analysis…");
-      } else if (logItems.length) {
-        setStatus("STIL file missing — loaded ATE logs only.");
-        setStatusTone("error");
+      } else {
+        setAutoloadRunPending(true);
+        if (logItems.length) setAutoloadPostPending(true);
+        setStatus("Running bundled STIL simulation…");
       }
     };
 
@@ -1766,7 +1775,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!autoloadRunPending || !file || running) return;
+    if (!autoloadRunPending || running) return;
     setAutoloadRunPending(false);
     void runRef.current();
   }, [autoloadRunPending, file, running]);
@@ -1872,7 +1881,7 @@ export default function App() {
             {file && <div className="file-name">{file.name}</div>}
           </div>
 
-          <button className="btn" onClick={run} disabled={running || !file}>
+          <button className="btn" onClick={run} disabled={running}>
             {running ? "Running…" : "Run live simulation"}
           </button>
           <button className="btn secondary" onClick={stop} disabled={!running}>

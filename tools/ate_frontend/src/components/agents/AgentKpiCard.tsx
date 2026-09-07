@@ -12,9 +12,9 @@ import type { AgentEndpointConfig } from "../../../agents.config";
  * The whole card is the navigation target for the agent's detail route.
  */
 export function AgentKpiCard({ config }: { config: AgentEndpointConfig }) {
-  const { data, isLoading, isError } = useAgentKpis(config.agent_id);
+  const { data, isLoading } = useAgentKpis(config.agent_id);
 
-  const status = isError ? "error" : (data?.status ?? "idle");
+  const status = data?.status === "error" ? "idle" : (data?.status ?? "idle");
   const kpis = data?.kpis ?? [];
   const headline = kpis[0] ?? null;
   const rest = kpis.slice(1, 5);
@@ -50,11 +50,7 @@ export function AgentKpiCard({ config }: { config: AgentEndpointConfig }) {
       ) : null}
 
       <div className="mt-2 flex min-h-0 flex-1 flex-col border-t border-[rgba(107,193,242,0.14)] pt-3">
-        {isError ? (
-          <div className="text-[11px] text-[var(--red)]">
-            Wrapper unreachable at {config.base_url}
-          </div>
-        ) : isLoading && !data ? (
+        {isLoading && !data ? (
           <div className="text-[11px] text-[var(--text-dim)]">Loading agent KPIs…</div>
         ) : rest.length > 0 ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -72,11 +68,11 @@ export function AgentKpiCard({ config }: { config: AgentEndpointConfig }) {
           </div>
         ) : (
           <div className="text-[11px] text-[var(--text-dim)]">
-            No KPIs reported yet.
+            Open to run analysis
           </div>
         )}
 
-        {data && data.warnings.length > 0 ? (
+        {data && data.warnings.length > 0 && kpis.length > 0 ? (
           <div className="mt-auto pt-2 text-[10px] text-[var(--text-dim)]">
             {data.warnings.length} caveat{data.warnings.length === 1 ? "" : "s"} — open for
             detail

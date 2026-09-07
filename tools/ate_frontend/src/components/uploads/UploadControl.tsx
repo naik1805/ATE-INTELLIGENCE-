@@ -72,6 +72,12 @@ export function UploadControl() {
     right: 16,
   });
 
+  // Permission-gated UI must match SSR until after mount (auth hydrates on client).
+  const uploadEnabled = mounted && canUpload;
+  const uploadTitle = uploadEnabled
+    ? "Upload wafer / STDF·STIL / log / Shmoo"
+    : "Upload (requires engineer role)";
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -95,7 +101,7 @@ export function UploadControl() {
   }, [open]);
 
   const onPick = () => {
-    if (!canUpload) {
+    if (!uploadEnabled) {
       setError(
         `Your role (${role ?? "unknown"}) cannot upload. Sign in as test_eng / admin / process_eng.`,
       );
@@ -106,7 +112,7 @@ export function UploadControl() {
 
   const onFile = async (file: File | null) => {
     if (!file) return;
-    if (!canUpload) {
+    if (!uploadEnabled) {
       setError(
         `Your role (${role ?? "unknown"}) cannot upload. Sign in as test_eng / admin / process_eng.`,
       );
@@ -196,7 +202,7 @@ export function UploadControl() {
         images/logs go to wafer map
       </p>
 
-      {!canUpload ? (
+      {!uploadEnabled ? (
         <p className="mb-3 rounded border border-[var(--amber)]/40 bg-[var(--amber-dim)] px-2.5 py-2 text-[11px] leading-relaxed text-[var(--amber)]">
           Signed in as <span className="font-mono">{role ?? "—"}</span> — cannot upload. Use{" "}
           <span className="font-mono">test_eng</span> / <span className="font-mono">test123</span> or{" "}
@@ -212,7 +218,7 @@ export function UploadControl() {
         File type
         <select
           value={kind}
-          disabled={!canUpload || busy}
+          disabled={!uploadEnabled || busy}
           onChange={(e) => setKind(e.target.value as UploadKind)}
           className="vl-field px-2.5 py-1.5 text-[11.5px] normal-case tracking-normal disabled:opacity-50"
         >
@@ -230,7 +236,7 @@ export function UploadControl() {
         type="file"
         className="hidden"
         accept={accept}
-        disabled={!canUpload || busy}
+        disabled={!uploadEnabled || busy}
         onChange={(e) => void onFile(e.target.files?.[0] ?? null)}
       />
 
@@ -242,7 +248,7 @@ export function UploadControl() {
 
       <div className="mt-2 flex gap-2">
         <Button type="button" disabled={busy} onClick={onPick}>
-          {busy ? "Uploading…" : canUpload ? "Choose file" : "Need engineer login"}
+          {busy ? "Uploading…" : uploadEnabled ? "Choose file" : "Need engineer login"}
         </Button>
         <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
           Close
@@ -283,11 +289,7 @@ export function UploadControl() {
       <button
         ref={triggerRef}
         type="button"
-        title={
-          canUpload
-            ? "Upload wafer / STDF·STIL / log / Shmoo"
-            : "Upload (requires engineer role)"
-        }
+        title={uploadTitle}
         onClick={() => setOpen((v) => !v)}
         className="inline-flex h-9 w-9 items-center justify-center rounded-[6px] border border-[var(--line-bright)] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent),var(--panel)] text-[var(--cyan)] transition-colors hover:border-[rgba(107,193,242,0.55)]"
         aria-label="Upload files"

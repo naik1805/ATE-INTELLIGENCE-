@@ -13,11 +13,22 @@ import {
   type DtlThreeMonthBundle,
 } from "@/lib/dtlPreviewData";
 
-async function fetchDtlThreeMonth(): Promise<DtlThreeMonthBundle> {
-  const url = `${AGENTS.dtl.api_url}/analysis/three-month`;
-  const res = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`DTL three-month fetch failed (${res.status})`);
-  return (await res.json()) as DtlThreeMonthBundle;
+async function fetchDtlThreeMonth(): Promise<DtlThreeMonthBundle | null> {
+  try {
+    const bootRes = await fetch("/api/default-data/agents/dtl/bootstrap", {
+      cache: "no-store",
+    });
+    const boot = bootRes.ok ? ((await bootRes.json()) as { analysis_session_id?: string }) : {};
+    const sid = boot.analysis_session_id ? String(boot.analysis_session_id) : "";
+    const url = sid
+      ? `${AGENTS.dtl.api_url}/analysis/three-month?analysis_session_id=${encodeURIComponent(sid)}`
+      : `${AGENTS.dtl.api_url}/analysis/three-month`;
+    const res = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return (await res.json()) as DtlThreeMonthBundle;
+  } catch {
+    return null;
+  }
 }
 
 export function DtlRecommendationsPreview({ live }: { live?: boolean }) {

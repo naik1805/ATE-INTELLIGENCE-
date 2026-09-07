@@ -22,6 +22,7 @@ export function readDashboardAgentCache(agentId: string): Record<string, unknown
 }
 
 export function writeDashboardAgentCache(agentId: string, payload: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
   try {
     localStorage.setItem(
       storageKey(agentId),
@@ -29,5 +30,14 @@ export function writeDashboardAgentCache(agentId: string, payload: Record<string
     );
   } catch {
     /* quota */
+  }
+}
+
+export function clearDashboardAgentCache(agentId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(storageKey(agentId));
+  } catch {
+    /* ignore */
   }
 }

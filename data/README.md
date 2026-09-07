@@ -46,6 +46,10 @@ Pre-retest events workbook for batch inference.
 - `pre_retest_events.xlsx` or any workbook with `pre_retest` in the name — main pre-retest workbook loaded on open
 - `outcomes.xlsx` or any workbook with `post_retest`, `outcome`, or `validation` in the name — post-retest outcomes for validation only (e.g. `post_retest_synthetic_validation_119_events.xlsx`)
 
+## ra_advisor
+
+Memory BIRA / BISR repair advisor. Interactive agent — no default upload files required. Drill-down opens the RA Advisor UI on port **8030**.
+
 ---
 
 After adding files, restart `run_all.py`. On startup it will:

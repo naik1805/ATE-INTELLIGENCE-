@@ -1,0 +1,48 @@
+{
+  "name": "ate-intelligence-desktop",
+  "version": "1.0.13",
+  "private": true,
+  "description": "Desktop shell for VERILUMEN ATE Intelligence (offline, local-only)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.verilumen.ate-intelligence",
+    "productName": "ATE Intelligence",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "app",
+        "filter": [
+          "**/*",
+          "!desktop/**",
+          "!**/.git/**",
+          "!**/.portable/**",
+          "!**/node_modules/**",
+          "!**/.next/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "ATE-Intelligence-Portable-${version}.exe"
+    }
+  }
+}

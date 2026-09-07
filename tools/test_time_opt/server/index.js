@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -46,11 +46,54 @@ app.use(express.json());
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
+    python: resolvePython(),
     defaultStilExists: fs.existsSync(DEFAULT_STIL),
+    defaultStil: DEFAULT_STIL,
   });
 });
 
+function pythonCanRunWorker(exe) {
+  try {
+    const r = spawnSync(exe, ["-c", "import psutil, numpy"], {
+      timeout: 20000,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 function resolvePython() {
+  const named = [process.env.ATE_PYTHON, process.env.PYTHON].filter(Boolean);
+  const candidates = [
+    ...named,
+    path.join(
+      process.env.LOCALAPPDATA || "",
+      "Programs",
+      "ATE Intelligence",
+      "resources",
+      "app",
+      ".portable",
+      "python",
+      "python.exe",
+    ),
+    "D:\\New folder\\New folder\\ATE Intelligence\\resources\\app\\.portable\\python\\python.exe",
+    path.join(REPO_ROOT, ".portable", "python", "python.exe"),
+    path.join(REPO_ROOT, ".portable", "venv", "Scripts", "python.exe"),
+  ];
+  for (const candidate of candidates) {
+    if (
+      candidate &&
+      candidate !== "python" &&
+      candidate !== "python3" &&
+      fs.existsSync(candidate) &&
+      pythonCanRunWorker(candidate)
+    ) {
+      return candidate;
+    }
+  }
   return process.env.PYTHON || "python";
 }
 
@@ -97,9 +140,15 @@ function runWorker(stilPath, _opts, res) {
   send({ type: "job", jobId });
   send({ type: "status", message: "Starting simulation worker…" });
 
-  const child = spawn(resolvePython(), args, {
+  const py = resolvePython();
+  const child = spawn(py, args, {
     cwd: ROOT,
-    env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
+    env: {
+      ...process.env,
+      PYTHONPATH: ROOT + path.delimiter + (process.env.PYTHONPATH || ""),
+      PYTHONIOENCODING: "utf-8",
+      PYTHONUNBUFFERED: "1",
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
   jobs.set(jobId, child);
@@ -121,6 +170,7 @@ function runWorker(stilPath, _opts, res) {
     jobs.delete(jobId);
   });
 
+  let stderrTail = "";
   let buf = "";
   child.stdout.on("data", (chunk) => {
     buf += chunk.toString("utf8");
@@ -139,7 +189,10 @@ function runWorker(stilPath, _opts, res) {
 
   child.stderr.on("data", (chunk) => {
     const msg = chunk.toString("utf8").trim();
-    if (msg) send({ type: "log", message: msg });
+    if (msg) {
+      stderrTail = (stderrTail + "\n" + msg).slice(-2000);
+      send({ type: "log", message: msg });
+    }
   });
 
   child.on("error", (err) => {
@@ -149,7 +202,13 @@ function runWorker(stilPath, _opts, res) {
 
   child.on("close", (code) => {
     if (code !== 0 && code !== null) {
-      send({ type: "error", message: `Worker exited with code ${code}` });
+      const detail = stderrTail.replace(/\s+/g, " ").slice(-400);
+      send({
+        type: "error",
+        message: detail
+          ? `Worker exited with code ${code}: ${detail}`
+          : `Worker exited with code ${code}`,
+      });
     }
     endOnce();
   });
@@ -278,7 +337,11 @@ app.post("/api/analyze-fails", upload.array("logs", 5000), (req, res) => {
 
     const child = spawn(py, args, {
       cwd: ROOT,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+      env: {
+        ...process.env,
+        PYTHONPATH: ROOT + path.delimiter + (process.env.PYTHONPATH || ""),
+        PYTHONIOENCODING: "utf-8",
+      },
     });
 
     let stdout = "";

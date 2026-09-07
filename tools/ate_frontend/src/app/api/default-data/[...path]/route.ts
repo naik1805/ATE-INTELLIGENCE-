@@ -5,7 +5,7 @@ import path from "path";
 const REPO_ROOT = path.join(process.cwd(), "..", "..");
 const DATA_DIR = path.join(REPO_ROOT, "data");
 const STATE_DIR = path.join(REPO_ROOT, "integration", ".state");
-const AGENT_IDS = new Set(["shmoo_ml", "test_time_opt", "dtl", "retest_reduction"]);
+const AGENT_IDS = new Set(["shmoo_ml", "test_time_opt", "dtl", "retest_reduction", "ra_advisor"]);
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",

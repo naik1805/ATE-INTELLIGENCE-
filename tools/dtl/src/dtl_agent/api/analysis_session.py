@@ -6,6 +6,8 @@ sandbox. No filesystem paths are exposed to API clients.
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import threading
 import time
@@ -49,8 +51,129 @@ _sessions: dict[str, AnalysisSession] = {}
 _job_status: dict[str, JobStatus] = {}
 
 
+def _store_dir() -> Path:
+    override = (os.environ.get("DTL_SESSION_STORE") or "").strip()
+    if override:
+        path = Path(override)
+    else:
+        local = os.environ.get("LOCALAPPDATA") or os.environ.get("TMP") or os.environ.get("TEMP")
+        path = Path(local or ".") / "ATE Intelligence" / "dtl-sessions"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _session_path(sid: str) -> Path:
+    safe = "".join(ch for ch in sid if ch.isalnum() or ch in "-_")
+    return _store_dir() / f"{safe}.json"
+
+
+def _write_session_disk(sess: AnalysisSession, job: JobStatus | None = None) -> None:
+    payload = {
+        "analysis_session_id": sess.analysis_session_id,
+        "root": str(sess.root),
+        "months": list(sess.months),
+        "created_at": sess.created_at,
+        "source_files": sess.source_files,
+        "provenance": sess.provenance,
+        "job": None
+        if job is None
+        else {
+            "status": job.status,
+            "stage": job.stage,
+            "progress_pct": job.progress_pct,
+            "created_at": job.created_at,
+            "error": job.error,
+            "result_meta": job.result_meta,
+        },
+    }
+    try:
+        _session_path(sess.analysis_session_id).write_text(
+            json.dumps(payload, default=str),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _delete_session_disk(sid: str) -> None:
+    try:
+        _session_path(sid).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _hydrate_from_disk(sid: str) -> AnalysisSession | None:
+    path = _session_path(sid)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    root = Path(str(data.get("root") or ""))
+    if not root.is_dir():
+        _delete_session_disk(sid)
+        return None
+    created_at = float(data.get("created_at") or time.time())
+    sess = AnalysisSession(
+        analysis_session_id=sid,
+        root=root.resolve(),
+        months=tuple(data.get("months") or ()),
+        created_at=created_at,
+        source_files=dict(data.get("source_files") or {}),
+        provenance=dict(data.get("provenance") or {}),
+    )
+    if sess.is_expired():
+        _delete_session_disk(sid)
+        return None
+    _sessions[sid] = sess
+    job_data = data.get("job") or {}
+    if sid not in _job_status:
+        _job_status[sid] = JobStatus(
+            analysis_session_id=sid,
+            status=str(job_data.get("status") or "completed"),
+            stage=str(job_data.get("stage") or "Ready"),
+            progress_pct=int(job_data.get("progress_pct") or 100),
+            created_at=float(job_data.get("created_at") or created_at),
+            error=job_data.get("error"),
+            result_meta=dict(job_data.get("result_meta") or {}),
+        )
+    return sess
+
+
 class AnalysisSessionError(ValueError):
     """Unknown / expired analysis session."""
+
+
+def _job_dict(js: JobStatus) -> dict[str, Any]:
+    res: dict[str, Any] = {
+        "analysis_session_id": js.analysis_session_id,
+        "status": js.status,
+        "stage": js.stage,
+        "progress_pct": js.progress_pct,
+        "error": js.error,
+    }
+    if js.result_meta:
+        res.update(js.result_meta)
+    return res
+
+
+def _completed_dict(sess: AnalysisSession) -> dict[str, Any]:
+    prov = sess.provenance
+    return {
+        "analysis_session_id": sess.analysis_session_id,
+        "status": "completed",
+        "stage": "Ready",
+        "progress_pct": 100,
+        "error": None,
+        "months": list(sess.months),
+        "used_uploaded_measurements": True,
+        "used_static_three_month_measurements": False,
+        "source_files": sess.source_files,
+        "primary_die": prov.get("primary_die"),
+        "scorable_parameters": prov.get("scorable_parameters"),
+        "data_provenance": "Analysis generated from uploaded test data",
+    }
 
 
 def _purge_locked(now: float | None = None) -> None:
@@ -59,6 +182,7 @@ def _purge_locked(now: float | None = None) -> None:
     for sid in dead:
         sess = _sessions.pop(sid, None)
         _job_status.pop(sid, None)
+        _delete_session_disk(sid)
         if sess is not None:
             shutil.rmtree(sess.root, ignore_errors=True)
     # Cap total sessions (oldest first)
@@ -67,6 +191,7 @@ def _purge_locked(now: float | None = None) -> None:
         for sess in ordered[: max(0, len(_sessions) - _MAX_SESSIONS)]:
             _sessions.pop(sess.analysis_session_id, None)
             _job_status.pop(sess.analysis_session_id, None)
+            _delete_session_disk(sess.analysis_session_id)
             shutil.rmtree(sess.root, ignore_errors=True)
 
 
@@ -91,6 +216,7 @@ def register_session(
     with _lock:
         _purge_locked()
         _sessions[sid] = sess
+        _write_session_disk(sess, _job_status.get(sid))
     return sess
 
 
@@ -117,46 +243,25 @@ def update_job_status(
             result_meta=dict(result_meta or (existing.result_meta if existing else {})),
         )
         _job_status[analysis_session_id] = js
+        sess = _sessions.get(analysis_session_id)
+        if sess is not None:
+            _write_session_disk(sess, js)
         return js
 
 
 def get_job_status(analysis_session_id: str) -> dict[str, Any]:
-    """Retrieve job status or return clean failure if server restarted / session lost."""
+    """Retrieve job status, including sessions restored after an API restart."""
     with _lock:
         _purge_locked()
         js = _job_status.get(analysis_session_id)
         if js is not None:
-            res: dict[str, Any] = {
-                "analysis_session_id": js.analysis_session_id,
-                "status": js.status,
-                "stage": js.stage,
-                "progress_pct": js.progress_pct,
-                "error": js.error,
-            }
-            if js.result_meta:
-                res.update(js.result_meta)
-            return res
+            return _job_dict(js)
 
-        # Check if session already registered and ready
-        sess = _sessions.get(analysis_session_id)
+        sess = _sessions.get(analysis_session_id) or _hydrate_from_disk(analysis_session_id)
         if sess is not None and not sess.is_expired():
-            prov = sess.provenance
-            return {
-                "analysis_session_id": analysis_session_id,
-                "status": "completed",
-                "stage": "Ready",
-                "progress_pct": 100,
-                "error": None,
-                "months": list(sess.months),
-                "used_uploaded_measurements": True,
-                "used_static_three_month_measurements": False,
-                "source_files": sess.source_files,
-                "primary_die": prov.get("primary_die"),
-                "scorable_parameters": prov.get("scorable_parameters"),
-                "data_provenance": "Analysis generated from uploaded test data",
-            }
+            js = _job_status.get(analysis_session_id)
+            return _job_dict(js) if js is not None else _completed_dict(sess)
 
-    # If session is unknown/expired or server rebooted
     return {
         "analysis_session_id": analysis_session_id,
         "status": "failed",
@@ -166,14 +271,37 @@ def get_job_status(analysis_session_id: str) -> dict[str, Any]:
     }
 
 
+def get_latest_completed_session() -> AnalysisSession | None:
+    """Most recent live upload session, including ones restored from disk."""
+    with _lock:
+        _purge_locked()
+        live = [s for s in _sessions.values() if not s.is_expired()]
+        if live:
+            return max(live, key=lambda s: s.created_at)
+        try:
+            files = sorted(
+                _store_dir().glob("*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            files = []
+        for path in files:
+            sess = _hydrate_from_disk(path.stem)
+            if sess is not None and not sess.is_expired():
+                return sess
+    return None
+
+
 def get_session(analysis_session_id: str) -> AnalysisSession:
     with _lock:
         _purge_locked()
-        sess = _sessions.get(analysis_session_id)
+        sess = _sessions.get(analysis_session_id) or _hydrate_from_disk(analysis_session_id)
         if sess is None or sess.is_expired():
             if sess is not None:
                 _sessions.pop(analysis_session_id, None)
                 _job_status.pop(analysis_session_id, None)
+                _delete_session_disk(analysis_session_id)
                 shutil.rmtree(sess.root, ignore_errors=True)
             raise AnalysisSessionError(
                 f"Unknown or expired analysis_session_id={analysis_session_id!r}"
@@ -185,6 +313,7 @@ def delete_session(analysis_session_id: str) -> bool:
     with _lock:
         sess = _sessions.pop(analysis_session_id, None)
         _job_status.pop(analysis_session_id, None)
+        _delete_session_disk(analysis_session_id)
     if sess is None:
         return False
     shutil.rmtree(sess.root, ignore_errors=True)
@@ -195,7 +324,10 @@ def clear_all_sessions() -> None:
     """Test / shutdown helper — remove all registered sessions and job statuses."""
     with _lock:
         items = list(_sessions.values())
+        sids = list(_sessions.keys())
         _sessions.clear()
         _job_status.clear()
+    for sid in sids:
+        _delete_session_disk(sid)
     for sess in items:
         shutil.rmtree(sess.root, ignore_errors=True)

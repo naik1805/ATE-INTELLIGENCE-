@@ -6,6 +6,20 @@ import csv
 import json
 from pathlib import Path
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolate_dtl_session_store(tmp_path, monkeypatch):
+    monkeypatch.setenv("DTL_SESSION_STORE", str(tmp_path / "dtl-sessions"))
+    yield
+    try:
+        from dtl_agent.api.analysis_session import clear_all_sessions
+
+        clear_all_sessions()
+    except Exception:
+        pass
+
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

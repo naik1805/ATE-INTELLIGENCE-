@@ -26,6 +26,42 @@ DTL_URL = "http://127.0.0.1:8010/api/v1/analysis/upload"
 DTL_STATUS_URL = "http://127.0.0.1:8010/api/v1/analysis/upload/status/{sid}"
 RETEST_URL = "http://127.0.0.1:8020/analysis/upload-pre-retest"
 
+AGENT_HEALTH_URLS = {
+    "shmoo_ml": "http://127.0.0.1:5000/",
+    "test_time_opt": "http://127.0.0.1:8787/api/health",
+    "dtl": "http://127.0.0.1:8010/api/v1/ready",
+    "retest_reduction": "http://127.0.0.1:8020/docs",
+    "ra_advisor": "http://127.0.0.1:8030/health",
+}
+
+
+def _probe_url(url: str, timeout: float = 3.0) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return 200 <= resp.status < 500
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def wait_for_agents(timeout_s: int = 300) -> bool:
+    """Wait until agent backends accept connections before seeding default data."""
+    deadline = time.time() + timeout_s
+    print(f"  [wait] agents (up to {timeout_s}s)...")
+    while time.time() < deadline:
+        ready = {name: _probe_url(url) for name, url in AGENT_HEALTH_URLS.items()}
+        ok = sum(1 for v in ready.values() if v)
+        if ok >= len(AGENT_HEALTH_URLS):
+            print(f"  [wait] all {ok} agents reachable")
+            return True
+        missing = [name for name, up in ready.items() if not up]
+        min_ok = max(3, len(AGENT_HEALTH_URLS) - 1)
+        if ok >= min_ok and (deadline - time.time()) < 90:
+            print(f"  [wait] {ok}/{len(AGENT_HEALTH_URLS)} agents reachable (missing: {', '.join(missing)})")
+            return True
+        time.sleep(4)
+    print("  [wait] timed out — seeding with best effort")
+    return False
+
 
 def _save_state(agent_id: str, payload: dict) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -269,6 +305,16 @@ def load_retest_reduction() -> bool:
         return False
 
 
+def load_ra_advisor() -> bool:
+    """RA Advisor is interactive (simulate/predict); no default upload files required."""
+    if not _probe_url("http://127.0.0.1:8030/health", timeout=5.0):
+        print("  [skip] ra_advisor — agent not reachable on :8030")
+        return False
+    _save_state("ra_advisor", {"ready": True, "ui": "http://127.0.0.1:8030"})
+    print("  [ok] ra_advisor — agent online")
+    return True
+
+
 def load_test_time_opt() -> bool:
     folder = DATA_DIR / "test_time_opt"
     files = _list_files(folder)
@@ -291,14 +337,26 @@ def _list_files(folder: Path) -> list[dict]:
     return out
 
 
+def _retry(label: str, fn, attempts: int = 3, delay_s: int = 8) -> bool:
+    for attempt in range(1, attempts + 1):
+        if fn():
+            return True
+        if attempt < attempts:
+            print(f"  [retry] {label} ({attempt}/{attempts}) in {delay_s}s...")
+            time.sleep(delay_s)
+    return False
+
+
 def main() -> int:
     print("Loading default agent data from", DATA_DIR)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    wait_for_agents()
     results = {
-        "shmoo_ml": load_shmoo_ml(),
-        "test_time_opt": load_test_time_opt(),
-        "dtl": load_dtl(),
-        "retest_reduction": load_retest_reduction(),
+        "shmoo_ml": _retry("shmoo_ml", load_shmoo_ml),
+        "test_time_opt": _retry("test_time_opt", load_test_time_opt, attempts=1),
+        "dtl": _retry("dtl", load_dtl, attempts=3, delay_s=20),
+        "retest_reduction": _retry("retest_reduction", load_retest_reduction),
+        "ra_advisor": _retry("ra_advisor", load_ra_advisor, attempts=3, delay_s=15),
     }
     ok = sum(1 for v in results.values() if v)
     print(f"Done — {ok}/{len(AGENT_IDS)} agents seeded.")

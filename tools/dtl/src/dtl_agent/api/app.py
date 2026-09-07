@@ -75,13 +75,20 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     app.state.ready_reason = state["ready_reason"]
 
     origins = svc.parsed_cors_origins()
-    if origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Correlation-ID"],
-        )
+    if not origins:
+        # Desktop bundle: DTL UI (:5174) calls the API (:8010) directly from the browser.
+        origins = [
+            "http://127.0.0.1:5174",
+            "http://localhost:5174",
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",
+        ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Correlation-ID", "Authorization"],
+    )
 
     app.add_middleware(RequestLoggingMiddleware)
     register_exception_handlers(app)
