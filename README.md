@@ -1,6 +1,6 @@
 # ATE Intelligence
 
-**VERILUMEN ATE Intelligence** is an offline-first Windows suite for semiconductor ATE analytics. It combines a unified dashboard with five local AI agents for shmoo optimization, test-time reduction, dynamic test limits, retest decisions, and memory BISR repair advice.
+**ATE Intelligence** is an offline-first Windows suite for semiconductor ATE analytics. It combines a unified dashboard with five local AI agents for shmoo optimization, test-time reduction, dynamic test limits, retest decisions, and memory BISR repair advice.
 
 Latest Windows installer: **[Release v1.0.13](https://github.com/naik1805/ATE-INTELLIGENCE-/releases/tag/v1.0.13)**
 
@@ -195,4 +195,4 @@ Incremental patches: **`Create Update Package.bat`** → `updates\ATE-Intelligen
 
 ## License / ownership
 
-Internal VERILUMEN ATE Intelligence project. Contact the repo owner for distribution rights outside your team.
+Internal ATE Intelligence project. Contact the repo owner for distribution rights outside your team.
