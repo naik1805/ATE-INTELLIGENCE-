@@ -8,7 +8,6 @@ import {
   postAutoloadToIframe,
 } from "@/lib/agentAutoload";
 import {
-  clearDashboardAgentCache,
   readDashboardAgentCache,
   writeDashboardAgentCache,
 } from "@/lib/agentSessionCache";
